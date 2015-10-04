@@ -1,14 +1,21 @@
 #!/usr/bin/env python
 
 '''
-VASP utility
+VASP utility by Kevin Driver 10-3-2015
 Compute g(r) for simple cubic cell from XDATCAR
+
+TODO:
+-smooth the g(r) by averaging over points
+-currently only copute g(r) from a single snapshot of a MD run.
+ Need to loop the code over several equilibrated snapshots.
+
 '''
 
                                                                    
 import sys
 import numpy as np
-
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 
 #function to compute the number of atoms in a range between r and r+dr from Nth atom 
 def countAtomsInDistRtoDR(nthatom,Nfatoms,fr,fdr,POSfarray):
@@ -67,13 +74,15 @@ with open('XDATCAR', "r") as infile, open('Output.txt', 'w') as outfile:
 
 
 ############## Compute g(r) #################
-nBins=int(20) #number of bins
+nBins=int(50) #number of bins
 binNumber=int(0) #initialize bin counter to 0
 GofRarray = np.zeros((Natoms,nBins)) # (atom, coord)
+distArray = np.zeros(nBins) # (atom, coord)
 #for r in np.arange(0.05, 0.5, 0.05):
 for r in np.linspace(0.05, 1.0, num=nBins):
+    distArray[binNumber]=r*acell1 #r in angstroms for plotting g(r) at the end
     #print r
-    dr=0.01 #shell thickness
+    dr=0.005 #shell thickness
     shellVol = 4*np.pi*acell1*r*acell1*r*dr*acell1 #volume of shell
     for ithatom in range(Natoms):    
         NthDistCount = countAtomsInDistRtoDR(ithatom,Natoms,r,dr,Coordarray)
@@ -98,3 +107,66 @@ for i in range(maxbinNumber): #loop over bins
     binNumber += 1
 
 print GofRarrayAvg
+print " "
+print distArray
+
+
+
+
+#######
+#plot
+#######
+fig_size = [13 ,10]
+
+mpl.rcParams['backend'] = 'ps'
+mpl.rcParams['font.size'] = 30
+
+mpl.rcParams['axes.labelsize'] = 30
+mpl.rcParams['axes.linewidth'] = 3.0
+
+mpl.rcParams['xtick.labelsize'] = 30
+mpl.rcParams['xtick.major.size'] = 15
+mpl.rcParams['xtick.major.width'] = 2.2
+mpl.rcParams['xtick.minor.size'] = 8
+mpl.rcParams['xtick.minor.width'] = 2.2
+mpl.rcParams['xtick.major.pad'] = 15
+
+mpl.rcParams['ytick.labelsize'] = 30
+mpl.rcParams['ytick.major.size'] = 15
+mpl.rcParams['ytick.major.width'] = 2.2
+mpl.rcParams['ytick.major.pad'] = 15
+mpl.rcParams['ytick.minor.size'] = 8
+mpl.rcParams['ytick.minor.width'] = 2.2
+
+mpl.rcParams['figure.figsize'] = fig_size
+
+mpl.rcParams['legend.fontsize'] = 15
+mpl.rcParams['legend.frameon'] = False
+mpl.rcParams['legend.handlelength'] = 2.5
+mpl.rcParams['legend.fontsize'] = 30
+
+fig = plt.figure() #defines an overall 'big' figure that contains the subfigures; allows common axis label
+
+
+fig1 = plt.subplot(111)
+plt.plot(distArray, GofRarrayAvg,'r-',linewidth=8.0,label='g(r)')
+
+plt.xlabel('r ($\AA$)')
+plt.xlim(0,1.6)
+plt.xticks(np.arange(0,8.0,1.0))
+
+plt.ylabel('g$_\mathrm{N-N}$(r)')
+plt.ylim(0,1.3)
+plt.yticks(np.arange(0,3.0,0.5))
+minorLocatorx   = plt.MultipleLocator(0.1)
+fig1.xaxis.set_minor_locator(minorLocatorx)
+minorLocatory   = plt.MultipleLocator(0.1)
+fig1.yaxis.set_minor_locator(minorLocatory)
+
+plt.legend(loc='lower right',prop={'size':30},handlelength=3.5,handletextpad=0.4)
+
+
+#plt.show()
+
+plt.savefig('GofR.pdf', bbox_inches='tight')
+#plt.savefig('GofR.eps', bbox_inches='tight')
