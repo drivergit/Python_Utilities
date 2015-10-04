@@ -6,7 +6,7 @@ Compute g(r) for simple cubic cell from XDATCAR
 
 TODO:
 -smooth the g(r) by averaging over points
--currently only copute g(r) from a single snapshot of a MD run.
+-I currently only compute g(r) from a single snapshot of a MD run.
  Need to loop the code over several equilibrated snapshots.
 
 '''
