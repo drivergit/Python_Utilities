@@ -3,16 +3,19 @@
 '''
 VASP utility by Kevin Driver 10-3-2015
 Compute g(r) for simple cubic cell from XDATCAR
+-NsnapshotMax and nBins are values set by the user
+
+Functionality:
+-Loops over several snapshots and computes and average g(r)
+
 
 TODO:
--smooth the g(r) by averaging over points
--I currently only compute g(r) from a single snapshot of a MD run.
- Need to loop the code over several equilibrated snapshots.
+-further smooth the g(r) by averaging over bins
 
 '''
 
                                                                    
-import sys
+import subprocess
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -38,7 +41,6 @@ def countAtomsInDistRtoDR(nthatom,Nfatoms,fr,fdr,POSfarray):
     return distTrueCount
 
 
-
 ###### Open and read XDATCAR; compute volume and rho=N/V ######
 with open('XDATCAR', "r") as infile, open('Output.txt', 'w') as outfile:
     infile.readline() # comment line
@@ -60,53 +62,107 @@ with open('XDATCAR', "r") as infile, open('Output.txt', 'w') as outfile:
     #print Natoms
     rho=Natoms/CellVolume
     #print rho
+
+
+
+    ###### Determine total number of snapshots in XDATCAR
+    wc = subprocess.Popen(["wc", "XDATCAR"], stdout=subprocess.PIPE)
+    awk = subprocess.Popen(["awk", "{print $1}"], stdin=wc.stdout, stdout=subprocess.PIPE)
+    #print awk                                                                  
+    output = float(awk.communicate()[0])
+    NsnapshotsTotal = int(np.ceil((output-8)/(Natoms+1))) #remove top 8 lines, divide by Natoms+1blankline
+    #print NsnapshotsTotal
+
+    #Let's skip halfway down XDATCAR to ensure we are using equilibrated snapshots
+    HalfNsnapshotsLine=(Natoms+1)*int(np.ceil(3*NsnapshotsTotal/4)) #number of lines to get to 75% down XDATCAR
+    #print HalfNsnapshotsLine
+    infile.readline() #read first Direct configuration line or blank
+
+    #Next line to be read is line number 9; the first coordinate line.
+    for i in range(HalfNsnapshotsLine):
+        infile.readline() #move ahead 1 line until we are halfway down
+
+    #checkline1 = infile.readline()
+    #print checkline1
+
+
+
+    Nsnapshot=int(0) #snapshot counter
+    NsnapshotMax=int(4) # I want to loop over NsnapshotMax snapshots picked from the last half of the XDATCAR file
+    for Nsnapshot in range(NsnapshotMax): #Big loop over snapshots
+
+        ########## Store the XDATCAR coordinates #############
+        Coordarray = np.zeros((Natoms,3)) # (atom, coord)
+        for i in range(Natoms): #loops over 0 to Natoms-1
+            coordString = infile.readline().split()
+            if i == 0:
+                print "first coord of snapshot",Nsnapshot, "is", coordString
+            for j in range(3): #x,y,z coords
+                Coordarray[i,j] = float(coordString[j])
+        #print Coordarray
+
+
+        #go ahead and advance the line number by a tenth of the second half
+        infile.readline() #read Direct configuration line or blank
+        fracofthelines = (Natoms+1)*int(np.ceil(1*NsnapshotsTotal/4/NsnapshotMax))
+        for i in range(fracofthelines):
+            infile.readline() #move ahead 1 line until a tenth of the way down
     
-    infile.readline() #read Direct configuration line
+        #checkline1 = infile.readline()
+        #print checkline1
 
+        ############## Compute g(r) #################
+        nBins=int(200) #number of bins
+        binNumber=int(0) #initialize bin counter to 0
+        GofRarray = np.zeros((Natoms,nBins)) # (atom, coord)
+        distArray = np.zeros(nBins) # (atom, coord)
+        #for r in np.arange(0.05, 0.5, 0.05):
+        for r in np.linspace(0.05, 0.5, num=nBins): #r goes to L/2
+            distArray[binNumber]=r*acell1 #r in angstroms for plotting g(r) at the end
+            #print r
+            dr=0.005 #shell thickness
+            shellVol = 4*np.pi*acell1*r*acell1*r*dr*acell1 #volume of shell
+            for ithatom in range(Natoms):    
+                NthDistCount = countAtomsInDistRtoDR(ithatom,Natoms,r,dr,Coordarray)
+                #print NthDistCount
+                GofRarray[ithatom,binNumber] = NthDistCount/(shellVol*rho) # dividing actual count by ideal count
+            binNumber += 1
 
-########## Store the XDATCAR coordinates #############
-    Coordarray = np.zeros((Natoms,3)) # (atom, coord)
-    for i in range(Natoms): #loops over 0 to Natoms-1
-        coordString = infile.readline().split()
-        for j in range(3): #x,y,z coords
-            Coordarray[i,j] = float(coordString[j])
-    #print Coordarray
+        #print GofRarray
 
+        #Average the GoR data for each atom:
+        if Nsnapshot == 0: #intitalize GofRarrayAvg to zero for the first snapshot only
+            GofRarrayAvg = np.zeros((NsnapshotMax,binNumber))
+        maxbinNumber=binNumber
+        binNumber = int(0) #reset bin count to 0
 
-############## Compute g(r) #################
-nBins=int(50) #number of bins
-binNumber=int(0) #initialize bin counter to 0
-GofRarray = np.zeros((Natoms,nBins)) # (atom, coord)
-distArray = np.zeros(nBins) # (atom, coord)
-#for r in np.arange(0.05, 0.5, 0.05):
-for r in np.linspace(0.05, 1.0, num=nBins):
-    distArray[binNumber]=r*acell1 #r in angstroms for plotting g(r) at the end
-    #print r
-    dr=0.005 #shell thickness
-    shellVol = 4*np.pi*acell1*r*acell1*r*dr*acell1 #volume of shell
-    for ithatom in range(Natoms):    
-        NthDistCount = countAtomsInDistRtoDR(ithatom,Natoms,r,dr,Coordarray)
-        #print NthDistCount
-        GofRarray[ithatom,binNumber] = NthDistCount/(shellVol*rho) # dividing actual count by ideal count
-    binNumber += 1
+        for i in range(maxbinNumber): #loop over bins
+            BinSum=float(0.0) #reset BinSum to zero for each bin
+            for ithatom in range(Natoms): #sum over atoms for like-bins
+                BinSum += GofRarray[ithatom,binNumber]
+                #print GofRarray[ithatom,binNumber]
+            AvgBinSum = BinSum/Natoms
+            GofRarrayAvg[Nsnapshot,binNumber]=AvgBinSum #average for ith snapshot
+            binNumber += 1
 
-#print GofRarray
+        #print GofRarrayAvg
+        Nsnapshot += 1
+    ###End of snapshot loop
 
-#average the GoR data for each atom:
-GofRarrayAvg = np.zeros(binNumber) # (atom, coord)
-maxbinNumber=binNumber
-binNumber = int(0) #reset bin count to 0
+    #Average g(r) over snapshots
+    GofR = np.zeros(binNumber)
+    binNumber = int(0) #reset bin count to 0
+    for i in range(maxbinNumber): #loop over bins
+        BinSum=float(0.0) #reset BinSum to zero for each bin
+        for ithsnapshot in range(NsnapshotMax): #sum over atoms for like-bins
+            BinSum += GofRarrayAvg[ithsnapshot,binNumber]
+        AvgBinSum = BinSum/NsnapshotMax
+        GofR[binNumber]=AvgBinSum
+        binNumber += 1
 
-for i in range(maxbinNumber): #loop over bins
-    BinSum=float(0.0) #reset BinSum to zero for each bin
-    for ithatom in range(Natoms): #sum over atoms for like-bins
-        BinSum += GofRarray[ithatom,binNumber]
-        #print GofRarray[ithatom,binNumber]
-    AvgBinSum = BinSum/Natoms
-    GofRarrayAvg[binNumber]=AvgBinSum
-    binNumber += 1
-
-print GofRarrayAvg
+print "Average GofR and the corresponding distance array:"
+print " "
+print GofR
 print " "
 print distArray
 
@@ -149,15 +205,15 @@ fig = plt.figure() #defines an overall 'big' figure that contains the subfigures
 
 
 fig1 = plt.subplot(111)
-plt.plot(distArray, GofRarrayAvg,'r-',linewidth=8.0,label='g(r)')
+plt.plot(distArray, GofR,'r-o',linewidth=2.0,label='g(r)')
 
 plt.xlabel('r ($\AA$)')
-plt.xlim(0,1.6)
-plt.xticks(np.arange(0,8.0,1.0))
+plt.xlim(0,4.0)
+plt.xticks(np.arange(0,4.0,1.0))
 
 plt.ylabel('g$_\mathrm{N-N}$(r)')
-plt.ylim(0,1.3)
-plt.yticks(np.arange(0,3.0,0.5))
+plt.ylim(0,2.5)
+plt.yticks(np.arange(0,2.5,0.5))
 minorLocatorx   = plt.MultipleLocator(0.1)
 fig1.xaxis.set_minor_locator(minorLocatorx)
 minorLocatory   = plt.MultipleLocator(0.1)
